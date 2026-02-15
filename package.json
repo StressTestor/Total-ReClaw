@@ -1,0 +1,23 @@
+{
+  "name": "@openclaw/memory-vault",
+  "version": "1.0.0",
+  "description": "SQLite-backed long-term memory with BYOK embeddings, smart capture, recency-weighted recall, and consolidation",
+  "type": "module",
+  "main": "src/index.ts",
+  "openclaw": {
+    "extensions": ["./src/index.ts"]
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.1.26"
+  },
+  "keywords": ["openclaw", "plugin", "memory", "sqlite", "vector"],
+  "license": "MIT"
+}

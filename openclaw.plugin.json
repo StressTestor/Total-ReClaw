@@ -1,0 +1,45 @@
+{
+  "id": "memory-vault",
+  "kind": "memory",
+  "name": "Memory Vault",
+  "description": "SQLite-backed long-term memory with BYOK embeddings, smart capture, recency-weighted recall, and memory consolidation. Zero native deps beyond what OpenClaw already ships.",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "embedding": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": ["auto", "openai", "gemini", "voyage", "local"],
+            "default": "auto"
+          },
+          "apiKey": { "type": "string" },
+          "model": { "type": "string" }
+        }
+      },
+      "autoCapture": { "type": "boolean", "default": true },
+      "autoRecall": { "type": "boolean", "default": true },
+      "recallLimit": { "type": "number", "default": 5, "minimum": 1, "maximum": 20 },
+      "captureMaxChars": { "type": "number", "default": 2000 },
+      "consolidation": {
+        "type": "object",
+        "properties": {
+          "enabled": { "type": "boolean", "default": true },
+          "intervalMinutes": { "type": "number", "default": 360 }
+        }
+      }
+    }
+  },
+  "uiHints": {
+    "embedding.provider": {
+      "label": "Embedding Provider",
+      "help": "Which embedding provider to use. 'auto' tries local -> openai -> gemini -> voyage based on available keys."
+    },
+    "embedding.apiKey": {
+      "label": "API Key",
+      "sensitive": true,
+      "help": "API key for your embedding provider (or use env vars like $OPENAI_API_KEY)"
+    }
+  }
+}
