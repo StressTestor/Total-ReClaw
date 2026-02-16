@@ -4,23 +4,20 @@ Long-term memory plugin for [OpenClaw](https://github.com/nicepkg/openclaw). SQL
 
 ## Install
 
-```
-openclaw plugins install -l https://github.com/nicepkg/memory-vault
-```
-
-Then activate it:
-
-```json
-{
-  "plugins": {
-    "slots": {
-      "memory": "memory-vault"
-    }
-  }
-}
+```bash
+# Clone and install (one-liner an agent can run)
+git clone https://github.com/StressTestor/Total-ReClaw /tmp/Total-ReClaw && cd /tmp/Total-ReClaw && npm install && openclaw plugins install -l /tmp/Total-ReClaw
 ```
 
-That's it. No config needed — it auto-detects your embedding provider from environment variables (`OPENAI_API_KEY`, `GEMINI_API_KEY`, or `VOYAGE_API_KEY`).
+Or step by step:
+```bash
+git clone https://github.com/StressTestor/Total-ReClaw
+cd Total-ReClaw
+npm install
+openclaw plugins install -l .
+```
+
+That's it. No extra config needed — it auto-detects your embedding provider from environment variables (`OPENAI_API_KEY`, `GEMINI_API_KEY`, or `VOYAGE_API_KEY`).
 
 ## What the agent gets
 

@@ -1,4 +1,6 @@
 import { createRequire } from "node:module";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { finalScore } from "./scoring.js";
 
 function requireNodeSqlite(): typeof import("node:sqlite") {
@@ -37,6 +39,7 @@ export class VaultDB {
   private vecReady = false;
 
   constructor(private dbPath: string) {
+    mkdirSync(dirname(dbPath), { recursive: true });
     const { DatabaseSync } = requireNodeSqlite();
     this.db = new DatabaseSync(dbPath);
     this.initSchema();
