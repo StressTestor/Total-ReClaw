@@ -47,12 +47,32 @@ const plugin = {
       };
     } else {
       // Fallback: direct OpenAI-compatible fetch
-      const apiKey = cfg.embedding.apiKey
-        || process.env.OPENAI_API_KEY
-        || process.env.GEMINI_API_KEY
-        || process.env.VOYAGE_API_KEY;
+      // Try to resolve API key from OpenClaw's configured model providers
+      const ocConfig = api.config as any;
+      const providers = ocConfig?.models?.providers ?? {};
 
-      if (!apiKey) {
+      // Find a provider with an apiKey that supports embeddings (prefer openai > openrouter > any)
+      let resolvedKey = cfg.embedding.apiKey || process.env.OPENAI_API_KEY;
+      let resolvedBaseUrl = "https://api.openai.com/v1";
+
+      if (!resolvedKey) {
+        // Try OpenClaw's configured providers
+        for (const name of ["openai", "openrouter", ...Object.keys(providers)]) {
+          const p = providers[name];
+          if (p?.apiKey) {
+            resolvedKey = p.apiKey;
+            resolvedBaseUrl = p.baseUrl || resolvedBaseUrl;
+            api.logger.info(`memory-vault: using embedding key from provider "${name}"`);
+            break;
+          }
+        }
+      }
+
+      if (!resolvedKey) {
+        resolvedKey = process.env.GEMINI_API_KEY || process.env.VOYAGE_API_KEY;
+      }
+
+      if (!resolvedKey) {
         api.logger.warn("memory-vault: no embedding API key found. Tools will fail until configured.");
       }
 
@@ -61,14 +81,14 @@ const plugin = {
         ? "https://api.voyageai.com/v1"
         : cfg.embedding.provider === "gemini"
           ? "https://generativelanguage.googleapis.com/v1beta"
-          : "https://api.openai.com/v1";
+          : resolvedBaseUrl;
 
       embedFn = async (text: string) => {
         const res = await fetch(`${baseUrl}/embeddings`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
+            Authorization: `Bearer ${resolvedKey}`,
           },
           body: JSON.stringify({ model, input: text }),
         });
@@ -357,6 +377,102 @@ const plugin = {
           .action((id: string) => {
             const deleted = db!.deleteById(id);
             console.log(deleted ? "Deleted." : "Not found.");
+          });
+
+        vault
+          .command("bootstrap")
+          .description("Build memories from existing OpenClaw session transcripts")
+          .option("--sessions-dir <path>", "Path to sessions directory")
+          .option("--dry-run", "Show what would be captured without saving", false)
+          .option("--limit <n>", "Max sessions to process (0 = all)", "0")
+          .action(async (opts: any) => {
+            const { readFileSync, readdirSync, existsSync } = await import("node:fs");
+            const { join } = await import("node:path");
+
+            // Find sessions directory
+            const sessionsDir = opts.sessionsDir
+              || api.resolvePath("~/.openclaw/main/sessions");
+
+            if (!existsSync(sessionsDir)) {
+              console.error(`Sessions directory not found: ${sessionsDir}`);
+              console.error("Use --sessions-dir to specify the path to your session JSONL files.");
+              return;
+            }
+
+            const files = readdirSync(sessionsDir).filter((f: string) => f.endsWith(".jsonl"));
+            if (files.length === 0) {
+              console.log("No session files found.");
+              return;
+            }
+
+            const maxSessions = parseInt(opts.limit) || files.length;
+            console.log(`Found ${files.length} session files. Processing ${Math.min(maxSessions, files.length)}...`);
+
+            let totalCaptured = 0;
+            let totalSkipped = 0;
+            let totalDupes = 0;
+            let processed = 0;
+
+            for (const file of files.slice(0, maxSessions)) {
+              processed++;
+              const lines = readFileSync(join(sessionsDir, file), "utf-8").split("\n").filter(Boolean);
+
+              for (const line of lines) {
+                let entry: any;
+                try { entry = JSON.parse(line); } catch { continue; }
+
+                if (entry.type !== "message") continue;
+                const msg = entry.message;
+                if (!msg || msg.role !== "user") continue;
+
+                const text = typeof msg.content === "string"
+                  ? msg.content
+                  : Array.isArray(msg.content)
+                    ? msg.content.filter((b: any) => b.type === "text").map((b: any) => b.text).join(" ")
+                    : null;
+
+                if (!text || !isValidMemoryText(text, cfg.captureMaxChars)) continue;
+
+                const { score, category } = evaluateCapture(text);
+                if (score < CAPTURE_THRESHOLD) { totalSkipped++; continue; }
+
+                const { clean, flagged } = sanitize(text);
+                if (flagged) { totalSkipped++; continue; }
+
+                if (opts.dryRun) {
+                  console.log(`  [${category}] (${score.toFixed(2)}) ${clean.slice(0, 100)}`);
+                  totalCaptured++;
+                  continue;
+                }
+
+                try {
+                  const embedding = await getEmbedding(clean);
+                  db!.ensureVec(embedding.length);
+
+                  const similar = db!.findSimilar(embedding, DEDUP_THRESHOLD);
+                  if (similar.length > 0) { totalDupes++; continue; }
+
+                  const id = crypto.randomUUID();
+                  const importance = Math.min(0.5 + score * 0.3, 0.9);
+                  const createdAt = entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now();
+                  db!.insert(id, clean, embedding, { category, importance });
+                  totalCaptured++;
+                } catch (e: any) {
+                  console.error(`  Error embedding: ${e.message}`);
+                }
+              }
+
+              if (processed % 5 === 0 || processed === Math.min(maxSessions, files.length)) {
+                console.log(`  [${processed}/${Math.min(maxSessions, files.length)}] Captured: ${totalCaptured}, Dupes: ${totalDupes}, Skipped: ${totalSkipped}`);
+              }
+            }
+
+            console.log(`\nBootstrap complete.`);
+            console.log(`  Sessions processed: ${processed}`);
+            console.log(`  Memories captured: ${totalCaptured}`);
+            console.log(`  Duplicates skipped: ${totalDupes}`);
+            console.log(`  Below threshold: ${totalSkipped}`);
+            if (opts.dryRun) console.log(`  (dry run — nothing saved)`);
           });
       },
       { commands: ["vault"] }
