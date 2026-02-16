@@ -1,8 +1,8 @@
 {
-  "id": "memory-vault",
+  "id": "total-reclaw",
   "kind": "memory",
-  "name": "Memory Vault",
-  "description": "SQLite-backed long-term memory with BYOK embeddings, smart capture, recency-weighted recall, and memory consolidation. Zero native deps beyond what OpenClaw already ships.",
+  "name": "Total ReClaw",
+  "description": "long-term memory for openclaw agents. sqlite-backed, any embedding provider, smart capture, recency-weighted recall, memory consolidation. zero new native deps.",
   "configSchema": {
     "type": "object",
     "properties": {

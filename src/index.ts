@@ -16,14 +16,14 @@ let db: VaultDB | null = null;
 let consolidationTimer: ReturnType<typeof setInterval> | null = null;
 
 async function getEmbedding(text: string): Promise<number[]> {
-  if (!embedFn) throw new Error("memory-vault: embedding provider not initialized");
+  if (!embedFn) throw new Error("total-reclaw: embedding provider not initialized");
   return embedFn(text);
 }
 
 const plugin = {
-  id: "memory-vault",
-  name: "Memory Vault",
-  description: "SQLite-backed long-term memory with BYOK embeddings, smart capture, recency-weighted recall, and consolidation",
+  id: "total-reclaw",
+  name: "Total ReClaw",
+  description: "long-term memory for openclaw agents. sqlite + any embedding provider. smart capture, recency-weighted recall, consolidation.",
   kind: "memory" as const,
 
   register(api: OpenClawPluginApi) {
@@ -62,7 +62,7 @@ const plugin = {
           if (p?.apiKey) {
             resolvedKey = p.apiKey;
             resolvedBaseUrl = p.baseUrl || resolvedBaseUrl;
-            api.logger.info(`memory-vault: using embedding key from provider "${name}"`);
+            api.logger.info(`total-reclaw: using embedding key from provider "${name}"`);
             break;
           }
         }
@@ -73,7 +73,7 @@ const plugin = {
       }
 
       if (!resolvedKey) {
-        api.logger.warn("memory-vault: no embedding API key found. Tools will fail until configured.");
+        api.logger.warn("total-reclaw: no embedding API key found. Tools will fail until configured.");
       }
 
       const model = cfg.embedding.model || "text-embedding-3-small";
@@ -99,7 +99,7 @@ const plugin = {
     }
 
     db = new VaultDB(dbPath);
-    api.logger.info(`memory-vault: initialized (db: ${dbPath})`);
+    api.logger.info(`total-reclaw: initialized (db: ${dbPath})`);
 
     // ── Tools ─────────────────────────────────────────────────────────
 
@@ -241,7 +241,7 @@ const plugin = {
             prependContext: `<vault-memories trust="unverified">\n${memories}\n</vault-memories>`,
           };
         } catch (e: any) {
-          api.logger.warn(`memory-vault: auto-recall failed: ${e.message}`);
+          api.logger.warn(`total-reclaw: auto-recall failed: ${e.message}`);
         }
       });
     }
@@ -280,10 +280,10 @@ const plugin = {
             const id = crypto.randomUUID();
             db!.insert(id, clean, embedding, { category, importance: Math.min(0.5 + score * 0.3, 0.9) });
             captured++;
-            api.logger.info(`memory-vault: auto-captured [${category}]: "${clean.slice(0, 60)}..."`);
+            api.logger.info(`total-reclaw: auto-captured [${category}]: "${clean.slice(0, 60)}..."`);
           }
         } catch (e: any) {
-          api.logger.warn(`memory-vault: auto-capture error: ${e.message}`);
+          api.logger.warn(`total-reclaw: auto-capture error: ${e.message}`);
         }
       });
     }
@@ -481,25 +481,25 @@ const plugin = {
     // ── Service (consolidation background task) ───────────────────────
 
     api.registerService({
-      id: "memory-vault",
+      id: "total-reclaw",
       start: async () => {
         if (cfg.consolidation.enabled) {
           const intervalMs = cfg.consolidation.intervalMinutes * 60 * 1000;
           consolidationTimer = setInterval(async () => {
             try {
               const merged = await runConsolidation(db!, getEmbedding);
-              if (merged > 0) api.logger.info(`memory-vault: consolidated ${merged} cluster(s)`);
+              if (merged > 0) api.logger.info(`total-reclaw: consolidated ${merged} cluster(s)`);
             } catch (e: any) {
-              api.logger.warn(`memory-vault: consolidation error: ${e.message}`);
+              api.logger.warn(`total-reclaw: consolidation error: ${e.message}`);
             }
           }, intervalMs);
-          api.logger.info(`memory-vault: consolidation scheduled every ${cfg.consolidation.intervalMinutes}m`);
+          api.logger.info(`total-reclaw: consolidation scheduled every ${cfg.consolidation.intervalMinutes}m`);
         }
       },
       stop: async () => {
         if (consolidationTimer) clearInterval(consolidationTimer);
         db?.close();
-        api.logger.info("memory-vault: stopped");
+        api.logger.info("total-reclaw: stopped");
       },
     });
   },
