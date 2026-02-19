@@ -21,7 +21,7 @@ openclaw plugins install -l .
 
 that's it. no config needed — it auto-detects your embedding provider from whatever's already in your openclaw config. if you have an openai or openrouter key configured as a model provider, it'll just use that. env vars (`OPENAI_API_KEY`, `GEMINI_API_KEY`, `VOYAGE_API_KEY`) work too.
 
-zero new native deps. uses better-sqlite3 and sqlite-vec that openclaw already ships.
+zero new native deps. uses `node:sqlite` (built-in since Node 22.5) and sqlite-vec that openclaw already ships. requires Node 22.5+.
 
 ## bootstrap from existing conversations
 
@@ -111,7 +111,7 @@ plugins:
     total-reclaw:
       config:
         embedding:
-          provider: auto    # openai | gemini | voyage | local | auto
+          provider: auto    # openai | gemini | voyage | local (ollama at localhost:11434) | auto
         autoCapture: true
         autoRecall: true
         recallLimit: 5

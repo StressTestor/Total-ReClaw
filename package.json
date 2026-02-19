@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "long-term memory plugin for openclaw. sqlite + any embedding provider. smart capture, recency-weighted recall, consolidation.",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
   "openclaw": {
     "extensions": [
       "./src/index.ts"
@@ -29,5 +29,8 @@
     "sqlite",
     "vector"
   ],
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "license": "MIT"
 }

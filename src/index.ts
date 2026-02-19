@@ -27,6 +27,11 @@ const plugin = {
   kind: "memory" as const,
 
   register(api: OpenClawPluginApi) {
+    // Cleanup previous registration if plugin is hot-reloaded
+    if (consolidationTimer) { clearInterval(consolidationTimer); consolidationTimer = null; }
+    if (db) { db.close(); db = null; }
+    embedFn = null;
+
     const cfg = resolveConfig(api.pluginConfig as Record<string, unknown> | undefined);
     const dbPath = api.resolvePath("~/.openclaw/memory/vault.db");
 
@@ -81,7 +86,9 @@ const plugin = {
         ? "https://api.voyageai.com/v1"
         : cfg.embedding.provider === "gemini"
           ? "https://generativelanguage.googleapis.com/v1beta"
-          : resolvedBaseUrl;
+          : cfg.embedding.provider === "local"
+            ? "http://localhost:11434/v1"
+            : resolvedBaseUrl;
 
       embedFn = async (text: string) => {
         const res = await fetch(`${baseUrl}/embeddings`, {
@@ -117,10 +124,10 @@ const plugin = {
           const { text, category, importance } = params as { text: string; category?: string; importance?: number };
           const { clean, flagged } = sanitize(text);
           if (flagged) {
-            return { content: [{ type: "text" as const, text: "Memory rejected: content flagged by safety filter." }] };
+            return { content: [{ type: "text" as const, text: "Memory rejected: content flagged by safety filter." }], details: {} };
           }
           if (!isValidMemoryText(clean, cfg.captureMaxChars)) {
-            return { content: [{ type: "text" as const, text: "Memory rejected: text too short, too long, or mostly code." }] };
+            return { content: [{ type: "text" as const, text: "Memory rejected: text too short, too long, or mostly code." }], details: {} };
           }
 
           const embedding = await getEmbedding(clean);
@@ -131,6 +138,7 @@ const plugin = {
           if (similar.length > 0) {
             return {
               content: [{ type: "text" as const, text: `Memory already exists (${(similar[0].similarity * 100).toFixed(0)}% match): "${similar[0].text.slice(0, 100)}..."` }],
+              details: { existingId: similar[0].id },
             };
           }
 
@@ -166,7 +174,7 @@ const plugin = {
 
           const results = db!.knnSearch(embedding, limit ?? cfg.recallLimit, category);
           if (results.length === 0) {
-            return { content: [{ type: "text" as const, text: "No memories found." }] };
+            return { content: [{ type: "text" as const, text: "No memories found." }], details: {} };
           }
 
           const text = results
@@ -198,6 +206,7 @@ const plugin = {
             const deleted = db!.deleteById(memoryId);
             return {
               content: [{ type: "text" as const, text: deleted ? `Deleted memory ${memoryId}` : `Memory ${memoryId} not found.` }],
+              details: deleted ? { deletedId: memoryId } : {},
             };
           }
 
@@ -206,7 +215,7 @@ const plugin = {
             db!.ensureVec(embedding.length);
             const results = db!.knnSearch(embedding, 1);
             if (results.length === 0) {
-              return { content: [{ type: "text" as const, text: "No matching memory found." }] };
+              return { content: [{ type: "text" as const, text: "No matching memory found." }], details: {} };
             }
             const match = results[0];
             const deleted = db!.deleteById(match.id);
@@ -216,7 +225,7 @@ const plugin = {
             };
           }
 
-          return { content: [{ type: "text" as const, text: "Provide either memoryId or query." }] };
+          return { content: [{ type: "text" as const, text: "Provide either memoryId or query." }], details: {} };
         },
       },
       { name: "memory_forget" }
@@ -455,7 +464,7 @@ const plugin = {
                   const id = crypto.randomUUID();
                   const importance = Math.min(0.5 + score * 0.3, 0.9);
                   const createdAt = entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now();
-                  db!.insert(id, clean, embedding, { category, importance });
+                  db!.insert(id, clean, embedding, { category, importance, createdAt });
                   totalCaptured++;
                 } catch (e: any) {
                   console.error(`  Error embedding: ${e.message}`);

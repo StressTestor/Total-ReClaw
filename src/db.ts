@@ -33,6 +33,24 @@ export interface SearchResult extends MemoryRow {
   score: number;
 }
 
+function toMemoryRow(row: unknown): MemoryRow {
+  const r = row as Record<string, unknown>;
+  return {
+    id: r.id as string,
+    text: r.text as string,
+    category: r.category as string,
+    importance: r.importance as number,
+    access_count: r.access_count as number,
+    created_at: r.created_at as number,
+    updated_at: r.updated_at as number,
+    last_accessed_at: (r.last_accessed_at as number | null) ?? null,
+    consolidated_into: (r.consolidated_into as string | null) ?? null,
+    agent_id: (r.agent_id as string | null) ?? null,
+    namespace: r.namespace as string,
+    metadata: (r.metadata as string | null) ?? null,
+  };
+}
+
 export class VaultDB {
   private db: InstanceType<typeof import("node:sqlite").DatabaseSync>;
   private dimensions: number | null = null;
@@ -77,9 +95,23 @@ export class VaultDB {
 
     try {
       this.db.exec("SELECT * FROM memory_vec LIMIT 0");
+      // Table exists — verify dimensions match
+      const stored = this.db.prepare(
+        "SELECT value FROM vault_meta WHERE key = 'dimensions'"
+      ).get() as Record<string, unknown> | undefined;
+      if (stored) {
+        const storedDims = parseInt(stored.value as string);
+        if (storedDims !== dimensions) {
+          throw new Error(
+            `total-reclaw: dimension mismatch — db has ${storedDims}, caller passed ${dimensions}. ` +
+            `Delete vault.db to re-embed with new model, or switch back to a ${storedDims}-dim model.`
+          );
+        }
+      }
       this.vecReady = true;
       return;
-    } catch {
+    } catch (e: any) {
+      if (e.message?.includes("dimension mismatch")) throw e;
       // Table doesn't exist yet
     }
 
@@ -108,6 +140,7 @@ export class VaultDB {
     agentId?: string;
     namespace?: string;
     metadata?: Record<string, unknown>;
+    createdAt?: number;
   } = {}): void {
     const now = Date.now();
     this.ensureVec(embedding.length);
@@ -119,7 +152,7 @@ export class VaultDB {
       id, text,
       opts.category ?? "other",
       opts.importance ?? 0.7,
-      now, now,
+      opts.createdAt ?? now, now,
       opts.agentId ?? null,
       opts.namespace ?? "default",
       opts.metadata ? JSON.stringify(opts.metadata) : null
@@ -179,7 +212,7 @@ export class VaultDB {
   findSimilar(embedding: number[], threshold: number): SearchResult[] {
     if (!this.vecReady) return [];
     const rows = this.db.prepare(`
-      SELECT m.id, m.text, vec_distance_cosine(v.embedding, ?) AS distance
+      SELECT m.*, vec_distance_cosine(v.embedding, ?) AS distance
       FROM memory_vec v
       JOIN memories m ON m.id = v.id
       WHERE m.consolidated_into IS NULL
@@ -205,9 +238,9 @@ export class VaultDB {
 
   getActiveOlderThan(ageMs: number): MemoryRow[] {
     const cutoff = Date.now() - ageMs;
-    return this.db.prepare(
+    return (this.db.prepare(
       "SELECT * FROM memories WHERE consolidated_into IS NULL AND created_at < ? ORDER BY created_at ASC"
-    ).all(cutoff) as MemoryRow[];
+    ).all(cutoff) as unknown[]).map(toMemoryRow);
   }
 
   getVecById(id: string): number[] | null {
@@ -235,17 +268,28 @@ export class VaultDB {
 
   allActive(limit: number, category?: string): MemoryRow[] {
     if (category) {
-      return this.db.prepare(
+      return (this.db.prepare(
         "SELECT * FROM memories WHERE consolidated_into IS NULL AND category = ? ORDER BY updated_at DESC LIMIT ?"
-      ).all(category, limit) as MemoryRow[];
+      ).all(category, limit) as unknown[]).map(toMemoryRow);
     }
-    return this.db.prepare(
+    return (this.db.prepare(
       "SELECT * FROM memories WHERE consolidated_into IS NULL ORDER BY updated_at DESC LIMIT ?"
-    ).all(limit) as MemoryRow[];
+    ).all(limit) as unknown[]).map(toMemoryRow);
   }
 
   allForExport(): MemoryRow[] {
-    return this.db.prepare("SELECT * FROM memories ORDER BY created_at ASC").all() as MemoryRow[];
+    return (this.db.prepare("SELECT * FROM memories ORDER BY created_at ASC").all() as unknown[]).map(toMemoryRow);
+  }
+
+  transaction(fn: () => void): void {
+    this.db.exec("BEGIN");
+    try {
+      fn();
+      this.db.exec("COMMIT");
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
   }
 
   close() {
