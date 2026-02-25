@@ -27,7 +27,7 @@ export async function runConsolidation(db: VaultDB, embedFn: EmbedFn): Promise<n
     if (neighbors.length === 0) continue;
 
     const cluster = [mem, ...neighbors];
-    const mergedText = cluster.map((m) => m.text).join(" | ");
+    const mergedText = cluster.map((m) => m.text).join(" | ").slice(0, 4000);
     const maxImportance = Math.max(...cluster.map((m) => m.importance));
 
     const newId = crypto.randomUUID();
