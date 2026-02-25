@@ -11,6 +11,8 @@ const DEDUP_THRESHOLD = 0.95;
 const CAPTURE_THRESHOLD = 0.3;
 const MAX_CAPTURES_PER_TURN = 5;
 
+// Singleton state — only one plugin registration is active at a time.
+// Hot-reload cleans up the previous instance in register().
 let embedFn: ((text: string) => Promise<number[]>) | null = null;
 let db: VaultDB | null = null;
 let consolidationTimer: ReturnType<typeof setInterval> | null = null;
@@ -79,30 +81,31 @@ const plugin = {
 
       if (!resolvedKey) {
         api.logger.warn("total-reclaw: no embedding API key found. Tools will fail until configured.");
+        // embedFn stays null — getEmbedding() will throw a clear error instead of sending "Bearer undefined"
+      } else {
+        const model = cfg.embedding.model || "text-embedding-3-small";
+        const baseUrl = cfg.embedding.provider === "voyage"
+          ? "https://api.voyageai.com/v1"
+          : cfg.embedding.provider === "gemini"
+            ? "https://generativelanguage.googleapis.com/v1beta"
+            : cfg.embedding.provider === "local"
+              ? "http://localhost:11434/v1"
+              : resolvedBaseUrl;
+
+        embedFn = async (text: string) => {
+          const res = await fetch(`${baseUrl}/embeddings`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${resolvedKey}`,
+            },
+            body: JSON.stringify({ model, input: text }),
+          });
+          if (!res.ok) throw new Error(`Embedding API error: ${res.status} ${await res.text()}`);
+          const json = (await res.json()) as any;
+          return json.data[0].embedding as number[];
+        };
       }
-
-      const model = cfg.embedding.model || "text-embedding-3-small";
-      const baseUrl = cfg.embedding.provider === "voyage"
-        ? "https://api.voyageai.com/v1"
-        : cfg.embedding.provider === "gemini"
-          ? "https://generativelanguage.googleapis.com/v1beta"
-          : cfg.embedding.provider === "local"
-            ? "http://localhost:11434/v1"
-            : resolvedBaseUrl;
-
-      embedFn = async (text: string) => {
-        const res = await fetch(`${baseUrl}/embeddings`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${resolvedKey}`,
-          },
-          body: JSON.stringify({ model, input: text }),
-        });
-        if (!res.ok) throw new Error(`Embedding API error: ${res.status} ${await res.text()}`);
-        const json = (await res.json()) as any;
-        return json.data[0].embedding as number[];
-      };
     }
 
     db = new VaultDB(dbPath);

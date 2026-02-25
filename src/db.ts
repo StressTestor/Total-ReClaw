@@ -93,8 +93,12 @@ export class VaultDB {
     if (this.vecReady) return;
     this.dimensions = dimensions;
 
-    try {
-      this.db.exec("SELECT * FROM memory_vec LIMIT 0");
+    // Check if the vec table exists via sqlite_master instead of exception flow
+    const tableCheck = this.db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='memory_vec'"
+    ).get() as Record<string, unknown> | undefined;
+
+    if (tableCheck) {
       // Table exists — verify dimensions match
       const stored = this.db.prepare(
         "SELECT value FROM vault_meta WHERE key = 'dimensions'"
@@ -110,17 +114,22 @@ export class VaultDB {
       }
       this.vecReady = true;
       return;
-    } catch (e: any) {
-      if (e.message?.includes("dimension mismatch")) throw e;
-      // Table doesn't exist yet
     }
 
     try {
       (this.db as any).enableLoadExtension(true);
+    } catch (e: any) {
+      throw new Error(
+        `Failed to enable SQLite extension loading: ${e.message}. ` +
+        `Node must be built with ENABLE_LOAD_EXTENSION support (most distributions do not). ` +
+        `Try using a Node build that supports loadable extensions, or install better-sqlite3.`
+      );
+    }
+    try {
       const sqliteVec = createRequire(import.meta.url)("sqlite-vec");
       sqliteVec.load(this.db);
     } catch (e: any) {
-      throw new Error(`Failed to load sqlite-vec extension: ${e.message}`);
+      throw new Error(`Failed to load sqlite-vec extension: ${e.message}. Run: npm install sqlite-vec`);
     }
 
     this.db.exec(`
